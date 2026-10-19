@@ -63,7 +63,7 @@ def write_legal_docs(project_path: str, info: dict | None = None) -> str:
 def install_footer_popup(project_path: str, include_checklist: bool = False, html_file: str | None = None) -> str:
     """이용약관·개인정보처리방침을 웹앱 하단 링크로 연결하고, 누르면 앱의 글꼴·색·모서리에 맞춘 팝업으로 엽니다
     (끝까지 스크롤하면 '확인했어요' 활성화, ×/Esc로 닫기, 휴대전화에서는 아래에서 올라오는 시트).
-    문서에 [확인 필요]나 '초안' 같은 표현이 남아 있으면 설치하지 않고, 교사에게 물어볼 질문을 돌려줍니다.
+    문서에 [확인 필요]나 금지 표현(임시본 꼬리표)이 남아 있으면 설치하지 않고, 교사에게 물어볼 질문을 돌려줍니다.
     include_checklist=true면 에듀집 체크리스트 팝업 링크도 추가합니다(체크리스트에 [확인 필요]가 남으면 그 링크만 빼고 설치). 배포하지 않습니다."""
     a = analyzer.analyze(project_path)
     return _j(popup.install(project_path, a, include_checklist, html_file))

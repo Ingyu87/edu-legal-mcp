@@ -16,16 +16,16 @@ wowideas 작업장 「개인정보처리방침/이용약관예시」에 있는 3
 ## AI가 꼭 지킬 규칙
 이 MCP를 쓰는 AI(Cursor, Claude Code, Codex 등)는 아래 규칙을 따라야 합니다. 서버 안내문과 도구 응답에도 같은 규칙이 들어 있습니다.
 1. `[확인 필요]` 항목은 추측하지 말고 **모두 교사에게 질문**해서 `info`로 채운 뒤 다시 생성합니다.
-2. 앱 화면, 팝업 제목, 하단 링크, 문서 어디에도 **'초안', '검토 초안', '시연용', '검토용', '확정 전'** 같은 말이나 "확정된 약관이 아닙니다" 같은 면책 문구를 넣지 않습니다. 이 문서는 실제 앱에 시행일과 함께 그대로 붙습니다.
+2. 앱 화면, 팝업 제목, 하단 링크, 문서 어디에도 **임시본임을 나타내는 꼬리표('시연용', '검토용', '확정 전' 등)** 같은 말이나 "확정된 약관이 아닙니다" 같은 면책 문구를 넣지 않습니다. 이 문서는 실제 앱에 시행일과 함께 그대로 붙습니다.
 3. `[확인 필요]`가 남은 이용약관·개인정보처리방침은 `install_footer_popup`이 **앱에 넣지 않고** 교사에게 물어볼 질문을 돌려줍니다. 금지 표현이 들어 있어도 설치하지 않습니다.
 
 ## 도구
 
 | 도구 | 하는 일 |
 |---|---|
-| `analyze_app(project_path)` | 코드를 분석해 다음을 찾고, 근거(파일:줄)와 함께 돌려줍니다.<br>• 입력 항목(이름·학년 등)<br>• 브라우저 저장(localStorage)<br>• 외부 AI(OpenAI·Gemini·Claude 등)<br>• Firebase·Supabase<br>• 로그인 기능<br>• 프레임워크(정적 HTML·React·Vue·Tailwind)<br>• 스타일(글꼴·색·모서리) |
+| `analyze_app(project_path)` | 코드를 분석해 다음을 찾고, 근거(파일:줄)와 함께 돌려줍니다.<br>• 입력 항목(이름·학년 등, 낮은 확신은 질문으로)<br>• 브라우저 저장(localStorage)<br>• 외부 AI(OpenAI·Gemini·Claude 등)<br>• Firebase·Supabase, 익명 로그인, Storage 업로드, 대화·이용 기록<br>• 이메일 발송·Secret Manager·접속 IP·오류 기록<br>• 로그인 기능<br>• 프레임워크·스타일(글꼴·색·모서리)<br>• 이미 약관 링크가 있거나 SPA이면 `legal_link_mode=link-only` |
 | `write_legal_docs(project_path, info)` | `terms.md`, `privacy.md`, `questions.md`와 `이용약관.hwpx`, `개인정보처리방침.hwpx`를 만듭니다. 모르는 내용은 `[확인 필요]`로 표시하고 질문 목록에 넣습니다. `unresolved_count`가 0이 될 때까지 질문→답→재실행을 반복합니다. |
-| `install_footer_popup(project_path, include_checklist)` | `index.html`에 스크립트 2개를 연결하고 하단 링크를 추가합니다. 문서에 `[확인 필요]`나 금지 표현이 있으면 설치하지 않습니다. `include_checklist=true`(기본 false)면 에듀집 체크리스트 링크도 넣는데, 체크리스트에 `[확인 필요]`가 남으면 그 링크만 빼고 설치합니다. 팝업 동작은 아래와 같습니다.<br>• 끝까지 스크롤해야 '확인했어요' 버튼이 켜집니다.<br>• ×, Esc, 바깥 클릭으로 닫을 수 있습니다.<br>• 휴대전화에서는 아래에서 올라오는 시트로 열립니다. |
+| `install_footer_popup(project_path, include_checklist)` | 정적 HTML이면 `index.html`에 스크립트 2개와 하단 링크를 연결합니다. SPA이거나 이미 이용약관·개인정보처리방침 링크가 있으면 앱 파일을 바꾸지 않고 `legal/`(또는 `public/legal/`)에 팝업·문서 파일만 만든 뒤, 기존 링크에 연결하는 코드를 안내합니다(`mode=link-only`). 문서에 `[확인 필요]`나 금지 표현이 있으면 설치하지 않습니다. `include_checklist=true`(기본 false)면 에듀집 체크리스트 링크도 넣는데, 체크리스트에 `[확인 필요]`가 남으면 그 링크만 빼고 설치합니다. 팝업 동작: 끝까지 스크롤해야 '확인했어요' 버튼이 켜짐, ×·Esc·바깥 클릭으로 닫기, 휴대전화에서는 아래에서 올라오는 시트. |
 | `generate_checklists(project_path, info)` | 개인정보 있음/없음 양식을 자동으로 골라 에듀집 체크리스트를 HWPX로 만들고, 학교용 HWPX도 만듭니다. 학교용 선택기준의 확인란과 '학교 확인(학교 작성)' 칸은 학교가 심의하며 채우도록 비워 둡니다. `checklist.json`과 요약도 함께 저장합니다. |
 | `run_all(project_path, info)` | 위 도구를 한 번에 실행합니다. |
 
@@ -94,7 +94,7 @@ claude mcp add edu-legal -- python -m edu_legal_mcp.server
   - 예시 앱의 답변은 복사하지 않습니다.
 
 ## 출력 파일 (`legal-docs/`)
-`이용약관.hwpx`, `개인정보처리방침.hwpx`, `에듀집 필수기준 체크리스트(앱이름_성명)_양식.hwpx`, `필수기준체크리스트(학교용)_앱이름.hwpx`, `terms.md`, `privacy.md`, `questions.md`, `checklist.json`, `checklist_summary.md`, `meta.json`. 예전 버전이 만든 `(초안)`·`_초안`·`_검토초안` 파일은 다시 실행하면 정리됩니다.
+`이용약관.hwpx`, `개인정보처리방침.hwpx`, `에듀집 필수기준 체크리스트(앱이름_성명)_양식.hwpx`, `필수기준체크리스트(학교용)_앱이름.hwpx`, `terms.md`, `privacy.md`, `questions.md`, `checklist.json`, `checklist_summary.md`, `meta.json`. 예전 버전이 만든 임시본 이름의 파일은 다시 실행하면 정리됩니다.
 
 ## 테스트
 ```bash
@@ -116,3 +116,9 @@ python -m http.server 8765 -d ./sample-app & python scripts/shots.py http://loca
 
 ## 주의
 이 도구가 만드는 문서는 법률 자문이 아닙니다. 학교와 교육청의 안내, 학교운영위원회 심의 절차를 따르세요.
+
+## 분석 한계
+`analyze_app`은 **정규식 패턴으로 신호를 찾는 보조 도구**입니다. 빌드 결과물·참고 문서는 건너뛰고, 확신이 낮은 항목은 `[확인 필요]` 질문으로 남깁니다. 그래도 놓치거나 잘못 잡는 경우가 있으니, AI는 코드를 직접 다시 읽고 교사에게 확인한 뒤 약관·처리방침을 확정해야 합니다. 이 MCP만으로 약관을 대신할 수 없습니다.
+
+## 변경 기록
+- **0.1.1** 분석기 보강: 비밀번호·번호 오탐 수정, 화면 라벨·검색창·참고 문서·빌드 폴더 제외, 이메일 발송·Secret Manager·익명 로그인·대화 저장·IP·Storage 업로드·이용 기록·교사 계정·오류 기록 신호 추가, SPA·기존 링크는 `link-only`로 팝업 파일만 생성. 회귀 테스트(`tests/`) 추가.

@@ -8,7 +8,7 @@ import json, re
 from datetime import date
 from pathlib import Path
 from . import hwpx
-from .legal import ART, TBD, AI_RULE, out_dir
+from .legal import ART, TBD, AI_RULE, DRAFT, out_dir
 from .safety import clean_info, safe_filename
 
 ON, OFF = "■", "□"
@@ -71,13 +71,14 @@ def answer_required(a: dict, privacy_md: str, privacy_path: str, info: dict | No
                 res[no] = {"mark": "해당없음", "evidence": f"{NA} 회원가입·이름 입력 등 개인정보 입력 기능이 코드에 없음 (분석 근거: 입력 필드 검사 결과 없음)"}
                 continue
             if no in ("5-2", "5-3"):
-                if not a["external_ai"] and not a["backends"]:
+                mail = ["이메일 발송 업체"] if "email_send" in a["signals"] else []
+                if not a["external_ai"] and not a["backends"] and not mail:
                     res[no] = {"mark": "해당없음", "evidence": f"{NA} 외부로 개인정보를 보내는 코드 없음 ({cite(keys)})"}
                     continue
                 kind = "제3자 제공" if no == "5-2" else "처리위탁"
-                ext = ", ".join([x["provider"] for x in a["external_ai"]] + a["backends"])
+                ext = ", ".join([x["provider"] for x in a["external_ai"]] + a["backends"] + mail)
                 if not a["external_ai"] or ai_type:
-                    applies = (no == "5-3" and a["backends"]) or (a["external_ai"] and ai_type == kind)
+                    applies = (no == "5-3" and (a["backends"] or mail)) or (a["external_ai"] and ai_type == kind)
                     if not applies:
                         res[no] = {"mark": "해당없음", "evidence": f"{NA} {kind}에 해당하는 전송 없음 ({cite(keys)})"}
                     elif TBD in arts.get(ART["제공위탁"], TBD):
@@ -138,7 +139,7 @@ def generate(project: str, a: dict, info: dict | None) -> dict:
         r = 13 + i
         vals[(1, r, 4)], vals[(1, r, 6)], vals[(1, r, 9)] = OFF, OFF, OFF  # 선택기준: 학교 판단 영역
         vals[(1, r, 11)] = txt
-    for old in list(d.glob("*초안.hwpx")):  # 예전 버전이 만든 '(초안)' 체크리스트 정리
+    for old in list(d.glob(f"*{DRAFT}.hwpx")):  # 예전 버전이 만든 임시본 체크리스트 정리
         old.unlink()
     school_path = d / f"필수기준체크리스트(학교용)_{safe_filename(name)}.hwpx"
     hwpx.fill_cells(vals, school_path)

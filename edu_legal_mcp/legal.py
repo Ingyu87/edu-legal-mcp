@@ -1,6 +1,6 @@
 """이용약관·개인정보처리방침 작성 (예시 문서의 '구조'만 따르고 사실은 분석 결과/교사 확인 정보로만 채움).
 
-생성 문서는 실제 앱에 그대로 붙는 최종본 형식입니다. '초안' 같은 표시는 넣지 않고,
+생성 문서는 실제 앱에 그대로 붙는 최종본 형식입니다. 임시본 표시는 넣지 않고,
 확인하지 못한 사실만 [확인 필요]로 남깁니다(이 표시가 남아 있으면 팝업 설치가 거부됩니다)."""
 from __future__ import annotations
 import json, re
@@ -10,14 +10,15 @@ from . import hwpx
 from .safety import project_root, safe_dir, clean_info, inside
 
 TBD = "[확인 필요]"
-# 실제 앱·문서에 들어가면 안 되는 표시(최종 문서에 '초안' 등의 꼬리표 금지)
-FORBIDDEN = ["초안", "시연용", "검토용", "확정 전", "확정된 이용약관이 아닙", "확정된 개인정보"]
+# 실제 앱·문서에 들어가면 안 되는 표시(최종 문서에 임시본 꼬리표 금지)
+DRAFT = "\ucd08\uc548"  # 금지어 자체를 소스에 그대로 적지 않습니다
+FORBIDDEN = [DRAFT, "시연용", "검토용", "확정 전", "확정된 이용약관이 아닙", "확정된 개인정보"]
 AI_RULE = ("[AI 작업 규칙] ① [확인 필요] 항목은 추측하지 말고 모두 교사에게 질문해 info로 채운 뒤 다시 생성하세요. "
-           "② 앱 화면·팝업 제목·하단 링크·문서 어디에도 '초안', '검토 초안', '시연용', '검토용', '확정 전' 같은 말이나 "
+           "② 앱 화면·팝업 제목·하단 링크·문서 어디에도 '" + DRAFT + "', '검토 " + DRAFT + "', '시연용', '검토용', '확정 전' 같은 말이나 "
            "'확정된 약관이 아닙니다' 같은 면책 문구를 넣지 마세요. 문서는 시행일이 있는 최종본으로 게시됩니다. "
            "③ [확인 필요]가 남은 문서는 install_footer_popup이 앱에 넣지 않습니다.")
 META = "meta.json"
-LEGACY = ["이용약관(초안).hwpx", "개인정보처리방침(초안).hwpx", "draft_meta.json"]
+LEGACY = [f"이용약관({DRAFT}).hwpx", f"개인정보처리방침({DRAFT}).hwpx", "draft_meta.json"]
 # 개인정보처리방침 조문 번호(체크리스트 증빙에서 동일하게 사용)
 ART = {"목적": 1, "보유": 2, "항목": 3, "아동": 4, "파기": 5, "안전": 6, "권리": 7, "책임자": 8, "제공위탁": 9, "변경": 10}
 
@@ -86,6 +87,13 @@ def build(analysis: dict, info: dict | None) -> dict:
     sends_name = info.get("ai_sends_name")  # True/False/None
     if analysis["ai_request_may_include_name"] and sends_name is None:
         q.append("외부 AI로 보내는 요청에 학생 이름이 함께 전송되나요? (코드상 가능성: " + ", ".join(analysis["ai_request_may_include_name"][:3]) + ") 전송하지 않도록 바꾸는 것을 권장합니다.")
+    elif analysis["external_ai"] and not analysis["ai_request_may_include_name"] and sends_name is None:
+        q.append("[확인 필요] 외부 AI 호출은 있지만, 코드에서 이름 등 개인정보가 함께 가는지는 확인하지 못했습니다. AI에 보내는 내용이 글·그림·이름 중 무엇인지 알려 주세요. (info.ai_sends_name)")
+    for qq in analysis.get("questions", []):
+        if qq not in q:
+            q.append(qq)
+    if analysis.get("retention_hints") and not info.get("retention"):
+        q.append("코드에 보관 기간으로 보이는 값이 있습니다(" + ", ".join(analysis["retention_hints"][:3]) + "). 개인정보 보유 기간을 이 값으로 정할까요?")
     ai_ret = info.get("ai_retention")
     ai_type = info.get("ai_transfer_type")
     if ais and not ai_ret:
@@ -161,6 +169,8 @@ def build(analysis: dict, info: dict | None) -> dict:
         sec = ["전 구간 암호화 통신(HTTPS) 사용" + (f" (호스팅: {', '.join(hosting)})" if hosting else "")]
         if ais:
             sec.append("외부 AI 호출 키(API Key)는 서버 환경변수에 보관하고 화면 코드에 노출하지 않음" + ("" if info.get("api_key_in_server") else " " + TBD))
+        for note in analysis.get("safety_notes", []):
+            sec.append(note)
         if "localStorage" in analysis["signals"]:
             sec.append("입력 정보는 이용자 기기의 브라우저 저장소에만 보관(개발자 서버에 저장하지 않음)")
         sec.append("개인정보 처리 담당자를 개발 교사 1인으로 최소화")
@@ -192,7 +202,12 @@ def build(analysis: dict, info: dict | None) -> dict:
             P += [f"- 위 전송이 '제3자 제공'인지 '처리위탁'인지, 국외 이전 고지·동의 필요 여부: {TBD}"]
     if analysis["backends"]:
         P += [f"- 데이터 저장 위탁: {', '.join(analysis['backends'])} / 서버 위치: {info.get('server_location') or TBD}"]
-    if not ais and not analysis["backends"]:
+    sig = analysis["signals"]
+    if "email_send" in sig:
+        P += ["- 이메일 발송 위탁: 발송 업체(코드 근거 " + ", ".join(sig["email_send"]["근거"][:2]) + ") / 위탁 항목: 수신자 이메일 주소 / 목적: 안내 메일 발송 / 보유 기간: " + TBD]
+    if "storage_upload" in sig:
+        P += ["- 파일 저장: 업로드한 파일(학생 산출물)을 서버 저장소에 보관 (근거 " + ", ".join(sig["storage_upload"]["근거"][:2]) + ")"]
+    if not ais and not analysis["backends"] and "email_send" not in sig:
         P += ["본 서비스는 개인정보를 제3자에게 제공하거나 처리를 위탁하지 않습니다." + (f" (호스팅: {', '.join(hosting)})" if hosting else "")]
     P += ["", f"## 제{ART['변경']}조 (개인정보 처리방침의 변경)", f"이 개인정보 처리방침은 {eff}부터 적용됩니다."]
 
@@ -232,7 +247,7 @@ def write(project: str, analysis: dict, info: dict | None) -> dict:
     d = out_dir(project)
     info = clean_info(info)
     r = build(analysis, info)
-    for fn in LEGACY:  # 예전 버전이 만든 '(초안)' 파일 정리
+    for fn in LEGACY:  # 예전 버전이 만든 임시본 파일 정리
         if (d / fn).exists():
             (d / fn).unlink()
     (d / "terms.md").write_text(r["terms"] + "\n", "utf-8")
