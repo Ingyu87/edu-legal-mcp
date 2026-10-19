@@ -8,7 +8,7 @@ import json, re
 from datetime import date
 from pathlib import Path
 from . import hwpx
-from .legal import ART, TBD, out_dir
+from .legal import ART, TBD, AI_RULE, out_dir
 
 ON, OFF = "■", "□"
 NA = "[해당 없음]"
@@ -46,9 +46,11 @@ def _articles(privacy_md: str) -> dict[int, str]:
     return arts
 
 
-def answer_required(a: dict, privacy_md: str, privacy_path: str) -> dict[str, dict]:
+def answer_required(a: dict, privacy_md: str, privacy_path: str, info: dict | None = None) -> dict[str, dict]:
     """각 항목: {mark: 충족|미충족|해당없음|None, evidence, question}"""
+    info = info or {}
     arts = _articles(privacy_md)
+    ai_type = info.get("ai_transfer_type")
     pi = a["collects_personal_info"]
     res = {}
     def cite(keys):
@@ -73,6 +75,15 @@ def answer_required(a: dict, privacy_md: str, privacy_path: str) -> dict[str, di
                     continue
                 kind = "제3자 제공" if no == "5-2" else "처리위탁"
                 ext = ", ".join([x["provider"] for x in a["external_ai"]] + a["backends"])
+                if not a["external_ai"] or ai_type:
+                    applies = (no == "5-3" and a["backends"]) or (a["external_ai"] and ai_type == kind)
+                    if not applies:
+                        res[no] = {"mark": "해당없음", "evidence": f"{NA} {kind}에 해당하는 전송 없음 ({cite(keys)})"}
+                    elif TBD in arts.get(ART["제공위탁"], TBD):
+                        res[no] = {"mark": None, "evidence": f"{TBD} {cite(keys)}에 미확인 내용이 있음", "question": f"{no}: {cite(keys)}의 [확인 필요]를 채워 주세요."}
+                    else:
+                        res[no] = {"mark": "충족", "evidence": f"({cite(keys)}) {ext} {kind} 내용 기재 — {privacy_path}"}
+                    continue
                 res[no] = {"mark": None, "evidence": f"{TBD} 외부 서비스({ext})로 데이터 전송이 있어 {kind} 해당 여부를 확인해야 함 ({cite(keys)}, 근거: {(a['external_ai'] or [{'근거': ['']}])[0]['근거'][0]})",
                            "question": f"{no}: {ext} 전송이 '{kind}'에 해당하는지 학교/교육청과 확인해 주세요."}
                 continue
@@ -87,15 +98,18 @@ def _boxes(mark):
     return [ON if mark == m else OFF for m in ("충족", "미충족", "해당없음")]
 
 
+SCHOOL_FILL = "학교 확인(학교 작성): "
+
+
 def school_optional(a: dict, info: dict | None = None) -> list[str]:
     info = info or {}
     ai = ", ".join(x["provider"] for x in a["external_ai"])
     return [
-        f"교사 답변: {a['audience_guess']} 대상 활동 {TBD}\n학교 확인: 교육과정·학년 적합성 판단",
-        "교사 답변: " + (f"AI 응답({ai})은 참고용임을 이용약관에 안내, 연령 적합성 필터 {TBD}" if ai else f"콘텐츠 출처 {TBD}") + "\n학교 확인: 콘텐츠 정확성·안전성 검토",
-        f"교사 답변: 설치 없는 웹앱({a['framework_style']['framework']}), 반응형 화면 {TBD}\n학교 확인: 학교 기기·네트워크에서 시험 사용",
-        "교사 답변: 화면 하단 이용약관·개인정보처리방침 링크(팝업) 제공\n학교 확인: 학생·교사 사용성 확인",
-        f"교사 답변: 문의 연락처 {info.get('contact_phone') or TBD}, 사용 안내 자료 {TBD}\n학교 확인: 지원 체계 적정성 판단",
+        f"교사 답변: {info.get('grade_fit') or (info.get('purpose') or a['audience_guess']) + ' 대상 활동 ' + TBD}\n{SCHOOL_FILL}",
+        "교사 답변: " + (info.get("content_safety") or ((f"AI 응답({ai})은 참고용임을 이용약관에 안내, 연령 적합성 필터 {TBD}") if ai else f"콘텐츠 출처 {TBD}")) + f"\n{SCHOOL_FILL}",
+        f"교사 답변: {info.get('device_env') or '설치 없는 웹앱(' + a['framework_style']['framework'] + '), 반응형 화면 ' + TBD}\n{SCHOOL_FILL}",
+        f"교사 답변: 화면 하단 이용약관·개인정보처리방침 링크(팝업) 제공\n{SCHOOL_FILL}",
+        f"교사 답변: 문의 연락처 {info.get('contact_phone') or TBD}, 사용 안내 자료 {info.get('support_material') or TBD}\n{SCHOOL_FILL}",
     ]
 
 
@@ -104,17 +118,17 @@ def generate(project: str, a: dict, info: dict | None) -> dict:
     d = out_dir(project)
     pp = d / "privacy.md"
     if not pp.exists():
-        raise FileNotFoundError("먼저 draft_legal_docs로 개인정보처리방침 초안을 만들어 주세요.")
+        raise FileNotFoundError("먼저 write_legal_docs로 개인정보처리방침을 만들어 주세요.")
     privacy = pp.read_text("utf-8")
     rel_pp = "legal-docs/privacy.md"
-    ans = answer_required(a, privacy, rel_pp)
+    ans = answer_required(a, privacy, rel_pp, info)
     variant = a["checklist_variant"]
     name = info.get("app_name") or a["app_title"]
     q = [v["question"] for v in ans.values() if v.get("question")]
 
     # ---- 학교용 (원본 hwpx 셀 채우기) ----
     rows = {"1-1": 3, "1-2": 4, "1-3": 5, "2-1": 6, "3-1": 7, "4-1": 8, "5-1": 9, "5-2": 10, "5-3": 11}
-    vals = {(0, 0, 2): "학습지원 소프트웨어 선정기준 체크리스트(학교용) [검토 초안]"}
+    vals = {(0, 0, 2): "학습지원 소프트웨어 선정기준 체크리스트(학교용)"}
     for no, r in rows.items():
         b = _boxes(ans[no]["mark"])
         vals[(1, r, 4)], vals[(1, r, 5)], vals[(1, r, 8)] = b
@@ -123,7 +137,9 @@ def generate(project: str, a: dict, info: dict | None) -> dict:
         r = 13 + i
         vals[(1, r, 4)], vals[(1, r, 6)], vals[(1, r, 9)] = OFF, OFF, OFF  # 선택기준: 학교 판단 영역
         vals[(1, r, 11)] = txt
-    school_path = d / f"필수기준체크리스트(학교용)_{name}_검토초안.hwpx"
+    for old in list(d.glob("*초안.hwpx")):  # 예전 버전이 만든 '(초안)' 체크리스트 정리
+        old.unlink()
+    school_path = d / f"필수기준체크리스트(학교용)_{name}.hwpx"
     hwpx.fill_cells(vals, school_path)
 
     # ---- 에듀집 (원본 hwp 표 구조 재구성) ----
@@ -131,9 +147,9 @@ def generate(project: str, a: dict, info: dict | None) -> dict:
     overview = [
         {"r": 0, "c": 0, "text": "제품/서비스명", "kind": "head"}, {"r": 0, "c": 1, "text": name},
         {"r": 0, "c": 2, "text": "공급자", "kind": "head"}, {"r": 0, "c": 3, "text": "교사"},
-        {"r": 1, "c": 0, "text": "접속경로", "kind": "head"}, {"r": 1, "c": 1, "cs": 3, "text": info.get("access_url") or f"{TBD} (아직 배포 전)"},
+        {"r": 1, "c": 0, "text": "접속경로", "kind": "head"}, {"r": 1, "c": 1, "cs": 3, "text": info.get("access_url") or f"{TBD} 접속 주소"},
         {"r": 2, "c": 0, "text": "주요 내용 및 기능 · 특장점", "kind": "head"},
-        {"r": 2, "c": 1, "cs": 3, "text": info.get("summary") or f"{name}: {_feat(a)} {TBD}"},
+        {"r": 2, "c": 1, "cs": 3, "text": info.get("summary") or (f"{name}: {info['features']}" if info.get("features") else f"{name}: {_feat(a)} {TBD}")},
     ]
     OW = [9000, 19190, 7000, 13000]
     main = [{"r": 0, "c": 0, "rs": 2, "text": "선정기준", "kind": "head"}, {"r": 0, "c": 1, "rs": 2, "text": "세부 내용", "kind": "head"},
@@ -153,7 +169,7 @@ def generate(project: str, a: dict, info: dict | None) -> dict:
     blocks = [("heading", "□ 제품/서비스 개요"), ("table", OW, overview), ("para", ""),
               ("heading", "□ 개인정보보호 기준 충족여부"), ("table", W, main), ("para", ""),
               ("heading", "□ 작성일 및 문의처"), ("table", [9000, 39190], tail)]
-    edzip_path = d / f"에듀집 필수기준 체크리스트({name}_{info.get('operator_name') or '000'})_{variant}_초안.hwpx"
+    edzip_path = d / f"에듀집 필수기준 체크리스트({name}_{info.get('operator_name') or '000'})_{variant}.hwpx"
     hwpx.build_document(blocks, edzip_path)
 
     data = {"variant": variant, "app_name": name, "overview": overview, "required": [
@@ -165,9 +181,9 @@ def generate(project: str, a: dict, info: dict | None) -> dict:
     for g in data["required"]:
         for it in g["items"]:
             md.append(f"| {it['no']} | {it['mark'] or '[확인 필요]'} | {it['evidence']} |")
-    md += ["", "## 추가로 확인할 내용"] + [f"- {x}" for x in q] + ["- 학교용 '선택기준'은 학교가 판단할 영역이라 체크하지 않았습니다(교사 답변/학교 확인 구분 기재).", "", "※ 아직 제출·공개하지 마세요."]
+    md += ["", "## 추가로 확인할 내용"] + [f"- {x}" for x in q] + ["- 학교용 '선택기준'은 학교가 판단할 영역이라 체크하지 않았고, '학교 확인(학교 작성)' 칸은 학교가 채웁니다.", "", "[확인 필요] 항목은 교사에게 확인해 info로 채운 뒤 다시 생성하세요."]
     (d / "checklist_summary.md").write_text("\n".join(md), "utf-8")
-    return {"variant": variant, "files": [str(edzip_path), str(school_path), str(d / "checklist.json"), str(d / "checklist_summary.md")], "questions": q, "answers": ans}
+    return {"variant": variant, "files": [str(edzip_path), str(school_path), str(d / "checklist.json"), str(d / "checklist_summary.md")], "questions": q, "answers": ans, "rule": AI_RULE}
 
 
 def _feat(a):

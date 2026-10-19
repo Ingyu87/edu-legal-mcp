@@ -4,7 +4,7 @@
 from __future__ import annotations
 import html, json, re
 from pathlib import Path
-from .legal import TBD, out_dir
+from .legal import TBD, AI_RULE, out_dir, find_forbidden, read_meta
 
 MARK = "<!-- edu-legal-mcp -->"
 
@@ -45,7 +45,7 @@ def checklist_html(data: dict) -> str:
     e = html.escape
     o = {x["text"]: x for x in data["overview"]}
     ov = data["overview"]
-    h = [f'<p class="el-note">⚠️ 작성 초안입니다. [확인 필요] 항목을 확인한 뒤 제출하세요. (양식: 에듀집 필수기준 체크리스트 – {e(data["variant"])})</p>',
+    h = [f'<p class="el-note">양식: 에듀집 필수기준 체크리스트 – {e(data["variant"])}</p>',
          "<h3>□ 제품/서비스 개요</h3>", '<div class="el-tw"><table class="el-t">',
          f'<tr><th>제품/서비스명</th><td>{e(ov[1]["text"])}</td><th>공급자</th><td>{e(ov[3]["text"])}</td></tr>',
          f'<tr><th>접속경로</th><td colspan="3">{_inline(ov[5]["text"])}</td></tr>',
@@ -142,18 +142,37 @@ def install(project: str, analysis: dict, include_checklist: bool = True, html_f
         "radius": st.get("radius") or "12px",
     }
     style["onPrimary"] = _contrast(style["primary"])
-    docs = {}
+    docs, problems, skipped = {}, [], []
     for key, fn, label in [("terms", "terms.md", "이용약관"), ("privacy", "privacy.md", "개인정보처리방침")]:
         p = d / fn
         if not p.exists():
-            raise FileNotFoundError("먼저 draft_legal_docs를 실행해 주세요.")
+            raise FileNotFoundError("먼저 write_legal_docs를 실행해 주세요.")
         md = p.read_text("utf-8")
         title = next((l[2:] for l in md.splitlines() if l.startswith("# ")), label)
+        tbd = [l.strip() for l in md.splitlines() if TBD in l]
+        bad = find_forbidden(md)
+        if tbd:
+            problems.append({"file": str(p), "확인 필요 줄": tbd})
+        if bad:
+            problems.append({"file": str(p), "금지 표현": bad})
         docs[key] = {"label": label, "title": title, "html": md_to_html(md)}
+    if problems:
+        qf = d / "questions.md"
+        return {"installed": False,
+                "reason": "이용약관·개인정보처리방침에 [확인 필요] 또는 금지 표현이 남아 있어 앱에 넣지 않았습니다. 앱 파일은 바꾸지 않았습니다.",
+                "problems": problems,
+                "questions_for_teacher": qf.read_text("utf-8") if qf.exists() else "",
+                "next": "위 질문을 교사에게 하나씩 묻고, 답을 info에 넣어 write_legal_docs를 다시 실행한 뒤 install_footer_popup을 다시 호출하세요. "
+                        "[확인 필요]를 지우거나 '초안' 같은 꼬리표로 대신하지 마세요.",
+                "rule": AI_RULE}
     if include_checklist and (d / "checklist.json").exists():
         data = json.loads((d / "checklist.json").read_text("utf-8"))
-        docs["checklist"] = {"label": "필수기준 체크리스트(검토용)", "title": f"에듀집 필수기준 체크리스트 – {data['app_name']}", "html": checklist_html(data)}
-    meta = json.loads((d / "draft_meta.json").read_text("utf-8")).get("info", {}) if (d / "draft_meta.json").exists() else {}
+        ch = checklist_html(data)
+        if TBD in ch or find_forbidden(ch):
+            skipped.append("checklist: 체크리스트에 [확인 필요]가 남아 있어 하단 링크에 넣지 않았습니다. generate_checklists를 info와 함께 다시 실행하세요.")
+        else:
+            docs["checklist"] = {"label": "필수기준 체크리스트", "title": f"에듀집 필수기준 체크리스트 – {data['app_name']}", "html": ch}
+    meta = read_meta(project)
     owner = ""
     if meta.get("operator_name") and meta.get("school"):
         owner = f"개인정보 보호책임자: {html.escape(meta['operator_name'])} 교사 ({html.escape(meta['school'])})" + (f" | 문의: {html.escape(meta['contact_phone'])}" if meta.get("contact_phone") else "")
@@ -178,4 +197,7 @@ def install(project: str, analysis: dict, include_checklist: bool = True, html_f
     return {"installed": True, "html_file": str(target), "assets": [str(asset_dir / "legal-content.js"), str(asset_dir / "legal-popup.js")], "style_used": style,
             "footer": "기존 <footer>가 있으면 그 안에, 없으면 body 끝에 링크를 추가합니다(로그인 전/후 모든 화면 공통).",
             "test": "PC·휴대전화 폭에서 열기→끝까지 스크롤→'확인했어요'/×/Esc/바깥 클릭으로 닫기를 확인하세요.",
-            "warning": "팝업 문서에 [확인 필요]가 남아 있으면 노란색으로 표시됩니다. 확인 전에는 배포하지 마세요." + (" 체크리스트 링크는 검토용이므로 배포 전 include_checklist=false로 다시 설치하세요." if "checklist" in docs else "")}
+            "skipped": skipped,
+            "note": ("체크리스트 링크는 에듀집 제출용입니다. 학생·학부모가 보는 실제 앱에 필요 없으면 include_checklist=false로 다시 설치하세요. " if "checklist" in docs else "") +
+                    "배포는 교사가 직접 확인한 뒤 합니다.",
+            "rule": AI_RULE}
