@@ -7,6 +7,7 @@ import json, re
 from datetime import date
 from pathlib import Path
 from . import hwpx
+from .safety import project_root, safe_dir, clean_info, inside
 
 TBD = "[확인 필요]"
 # 실제 앱·문서에 들어가면 안 되는 표시(최종 문서에 '초안' 등의 꼬리표 금지)
@@ -22,8 +23,12 @@ ART = {"목적": 1, "보유": 2, "항목": 3, "아동": 4, "파기": 5, "안전"
 
 
 def out_dir(project: str) -> Path:
-    d = Path(project) / "legal-docs"
-    d.mkdir(exist_ok=True)
+    root = project_root(project)
+    d = safe_dir(root, "legal-docs")
+    # legal-docs 안에 프로젝트 밖을 가리키는 링크 파일이 있으면 덮어쓰지 않음
+    for p in list(d.iterdir()) + (list((d / "backup").iterdir()) if (d / "backup").is_dir() else []):
+        if p.is_symlink():
+            inside(root, p)
     return d
 
 
@@ -35,7 +40,7 @@ def read_meta(project: str) -> dict:
     d = out_dir(project)
     for fn in (META, "draft_meta.json"):
         if (d / fn).exists():
-            return json.loads((d / fn).read_text("utf-8")).get("info", {}) or {}
+            return clean_info(json.loads((d / fn).read_text("utf-8")).get("info", {}) or {})
     return {}
 
 
@@ -49,7 +54,7 @@ def _v(info: dict, key: str, q: list, question: str) -> str:
 
 
 def build(analysis: dict, info: dict | None) -> dict:
-    info = info or {}
+    info = clean_info(info)
     q: list[str] = []
     ev: list[str] = []
     name = info.get("app_name") or analysis["app_title"]
@@ -225,6 +230,7 @@ def md_to_blocks(md: str) -> list[tuple]:
 
 def write(project: str, analysis: dict, info: dict | None) -> dict:
     d = out_dir(project)
+    info = clean_info(info)
     r = build(analysis, info)
     for fn in LEGACY:  # 예전 버전이 만든 '(초안)' 파일 정리
         if (d / fn).exists():

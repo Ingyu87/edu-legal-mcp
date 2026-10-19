@@ -1,9 +1,10 @@
 """웹앱 코드베이스 분석: 실제로 수집·저장·외부 전송하는 정보와 화면 스타일을 찾습니다."""
 from __future__ import annotations
-import json, re
+import json, os, re
 from collections import Counter
 from pathlib import Path
 from urllib.parse import urlparse
+from .safety import project_root
 
 SKIP_DIRS = {"node_modules", ".git", "dist", "build", ".next", ".vercel", "legal-docs", "legal", ".cache", "coverage", "out"}
 CODE_EXT = {".html", ".htm", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".css", ".scss", ".json", ".py", ".gs"}
@@ -40,9 +41,18 @@ INPUT_RE = re.compile(r"<(input|textarea|select)\b[^>]*>", re.I | re.S)
 
 
 def _files(root: Path):
-    for p in root.rglob("*"):
-        if p.is_file() and not (set(p.relative_to(root).parts[:-1]) & SKIP_DIRS) and p.suffix.lower() in CODE_EXT:
-            if p.name in ("package-lock.json", "yarn.lock", "pnpm-lock.yaml") or p.stat().st_size > 800_000:
+    # 심볼릭 링크 폴더는 따라가지 않고, 프로젝트 밖을 가리키는 링크 파일은 읽지 않습니다.
+    for dp, dns, fns in os.walk(root, followlinks=False):
+        dns[:] = sorted(d for d in dns if d not in SKIP_DIRS)
+        for fn in sorted(fns):
+            p = Path(dp) / fn
+            if p.suffix.lower() not in CODE_EXT or fn in ("package-lock.json", "yarn.lock", "pnpm-lock.yaml"):
+                continue
+            try:
+                rp = p.resolve()
+                if not rp.is_relative_to(root) or not rp.is_file() or rp.stat().st_size > 800_000:
+                    continue
+            except OSError:
                 continue
             yield p
 
@@ -109,9 +119,7 @@ def _style(root: Path, files: list[Path], deps: set[str]) -> dict:
 
 
 def analyze(project_path: str) -> dict:
-    root = Path(project_path).expanduser().resolve()
-    if not root.is_dir():
-        raise FileNotFoundError(f"프로젝트 폴더가 없습니다: {root}")
+    root = project_root(project_path)
     files = list(_files(root))
     pkg = {}
     if (root / "package.json").exists():

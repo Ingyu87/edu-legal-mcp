@@ -9,6 +9,7 @@ from datetime import date
 from pathlib import Path
 from . import hwpx
 from .legal import ART, TBD, AI_RULE, out_dir
+from .safety import clean_info, safe_filename
 
 ON, OFF = "■", "□"
 NA = "[해당 없음]"
@@ -114,7 +115,7 @@ def school_optional(a: dict, info: dict | None = None) -> list[str]:
 
 
 def generate(project: str, a: dict, info: dict | None) -> dict:
-    info = info or {}
+    info = clean_info(info)
     d = out_dir(project)
     pp = d / "privacy.md"
     if not pp.exists():
@@ -139,7 +140,7 @@ def generate(project: str, a: dict, info: dict | None) -> dict:
         vals[(1, r, 11)] = txt
     for old in list(d.glob("*초안.hwpx")):  # 예전 버전이 만든 '(초안)' 체크리스트 정리
         old.unlink()
-    school_path = d / f"필수기준체크리스트(학교용)_{name}.hwpx"
+    school_path = d / f"필수기준체크리스트(학교용)_{safe_filename(name)}.hwpx"
     hwpx.fill_cells(vals, school_path)
 
     # ---- 에듀집 (원본 hwp 표 구조 재구성) ----
@@ -169,7 +170,7 @@ def generate(project: str, a: dict, info: dict | None) -> dict:
     blocks = [("heading", "□ 제품/서비스 개요"), ("table", OW, overview), ("para", ""),
               ("heading", "□ 개인정보보호 기준 충족여부"), ("table", W, main), ("para", ""),
               ("heading", "□ 작성일 및 문의처"), ("table", [9000, 39190], tail)]
-    edzip_path = d / f"에듀집 필수기준 체크리스트({name}_{info.get('operator_name') or '000'})_{variant}.hwpx"
+    edzip_path = d / f"에듀집 필수기준 체크리스트({safe_filename(name)}_{safe_filename(info.get('operator_name'), '000', 20)})_{variant}.hwpx"
     hwpx.build_document(blocks, edzip_path)
 
     data = {"variant": variant, "app_name": name, "overview": overview, "required": [

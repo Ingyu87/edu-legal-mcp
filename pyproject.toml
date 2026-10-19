@@ -3,7 +3,7 @@ name = "edu-legal-mcp"
 version = "0.1.0"
 description = "교사 개발자 웹앱용 이용약관·개인정보처리방침·필수기준 체크리스트(HWPX) MCP 서버"
 requires-python = ">=3.10"
-dependencies = ["mcp>=1.2", "lxml>=4.9"]
+dependencies = ["mcp>=1.10", "lxml>=5.2"]
 
 [project.scripts]
 edu-legal-mcp = "edu_legal_mcp.server:main"

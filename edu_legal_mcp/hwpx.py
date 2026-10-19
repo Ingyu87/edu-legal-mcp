@@ -5,9 +5,17 @@
 - build_document(): 같은 스타일로 새 표/문단을 만들어 HWPX로 저장합니다(에듀집 양식 재구성, 약관 문서).
 """
 from __future__ import annotations
-import copy, random, zipfile, io, struct, zlib
+import copy, secrets, zipfile, io, struct, zlib
 from pathlib import Path
 from lxml import etree
+from .safety import xml_text
+
+# 외부 엔티티·네트워크 접근을 끈 파서(XXE 방지)
+PARSER = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False, huge_tree=False)
+
+
+def _parse(b: bytes):
+    return etree.fromstring(b, PARSER)
 
 HP = "http://www.hancom.co.kr/hwpml/2011/paragraph"
 NS = {"hp": HP}
@@ -35,7 +43,7 @@ def _blank_png(w=200, h=283) -> bytes:
 
 def _save(files: dict[str, bytes], out: Path, preview_text: str) -> Path:
     files = dict(files)
-    files["Preview/PrvText.txt"] = preview_text[:1000].encode("utf-8")
+    files["Preview/PrvText.txt"] = xml_text(preview_text)[:1000].encode("utf-8")
     files["Preview/PrvImage.png"] = _blank_png()
     out.parent.mkdir(parents=True, exist_ok=True)
     order = ["mimetype"] + [n for n in files if n != "mimetype"]
@@ -51,14 +59,17 @@ def validate(path: Path) -> list[str]:
     """패키지 구조와 XML 형식을 검사합니다. 문제가 있으면 예외."""
     with zipfile.ZipFile(path) as z:
         names = z.namelist()
-        assert names[0] == "mimetype", "mimetype이 첫 항목이 아님"
-        assert z.getinfo("mimetype").compress_type == zipfile.ZIP_STORED
-        assert z.read("mimetype") == b"application/hwp+zip"
+        def need(ok, msg):
+            if not ok:
+                raise ValueError(f"HWPX 검사 실패: {msg}")
+        need(names and names[0] == "mimetype", "mimetype이 첫 항목이 아님")
+        need(z.getinfo("mimetype").compress_type == zipfile.ZIP_STORED, "mimetype 압축됨")
+        need(z.read("mimetype") == b"application/hwp+zip", "mimetype 값 이상")
         for req in ["version.xml", "Contents/header.xml", "Contents/section0.xml", "Contents/content.hpf", "META-INF/container.xml"]:
-            assert req in names, f"{req} 누락"
+            need(req in names, f"{req} 누락")
         for n in names:
             if n.endswith((".xml", ".hpf", ".rdf")):
-                etree.fromstring(z.read(n))
+                _parse(z.read(n))
     return names
 
 
@@ -95,14 +106,14 @@ def _para_like(proto, text: str):
     for c in list(r):
         r.remove(c)
     t = etree.SubElement(r, q("t"))
-    t.text = text
+    t.text = xml_text(text)
     return p
 
 
 def fill_cells(values: dict[tuple[int, int, int], str], out: Path, template: Path = TEMPLATE) -> Path:
     """(표 번호, 행, 열) -> 텍스트. 원본 표 구조/스타일은 그대로 둡니다."""
     files = _load(template)
-    root = etree.fromstring(files["Contents/section0.xml"])
+    root = _parse(files["Contents/section0.xml"])
     cells = _cell_map(root)
     for key, text in values.items():
         if key not in cells:
@@ -151,7 +162,7 @@ def _make_table(P: _Protos, widths: list[int], cells: list[dict], row_h=1665):
     tbl = copy.deepcopy(P.tbl)
     for tr in tbl.findall("hp:tr", NS):
         tbl.remove(tr)
-    tbl.set("id", str(random.randint(10**9, 2 * 10**9)))
+    tbl.set("id", str(10**9 + secrets.randbelow(10**9)))
     tbl.set("rowCnt", str(nrows)); tbl.set("colCnt", str(len(widths)))
     _set(tbl.find("hp:sz", NS), width=sum(widths), height=nrows * row_h)
     for r in range(nrows):
@@ -167,7 +178,7 @@ def _make_table(P: _Protos, widths: list[int], cells: list[dict], row_h=1665):
 def build_document(blocks: list[tuple], out: Path) -> Path:
     """blocks: ("title", text) | ("heading", text) | ("para", text) | ("table", widths, cells)"""
     files = _load()
-    root = etree.fromstring(files["Contents/section0.xml"])
+    root = _parse(files["Contents/section0.xml"])
     P = _Protos(root)
     first = P.plain_p
     # 첫 문단: secPr(용지 설정)만 남김
@@ -209,7 +220,7 @@ def build_document(blocks: list[tuple], out: Path) -> Path:
 def dump_tables(path: Path) -> list[list[list[str]]]:
     """검증용: HWPX의 표를 (표 → 행 → 셀 텍스트)로 읽습니다."""
     with zipfile.ZipFile(path) as z:
-        root = etree.fromstring(z.read("Contents/section0.xml"))
+        root = _parse(z.read("Contents/section0.xml"))
     res = []
     for tbl in root.iter(q("tbl")):
         rows = []

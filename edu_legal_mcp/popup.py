@@ -5,6 +5,7 @@ from __future__ import annotations
 import html, json, re
 from pathlib import Path
 from .legal import TBD, AI_RULE, out_dir, find_forbidden, read_meta
+from .safety import project_root, inside, safe_dir, backup, css_value, UnsafePath
 
 MARK = "<!-- edu-legal-mcp -->"
 
@@ -131,15 +132,16 @@ def _contrast(hexcolor: str) -> str:
 
 
 def install(project: str, analysis: dict, include_checklist: bool = True, html_file: str | None = None) -> dict:
-    root = Path(project)
+    root = project_root(project)
     d = out_dir(project)
     st = analysis["framework_style"]
+    # 앱 CSS에서 읽은 값은 형식 검사 후 사용(이상한 값이면 기본값)
     style = {
-        "font": st.get("font_family") or "inherit",
-        "primary": st.get("primary") or "#4f46e5",
-        "text": st.get("text") or "#222222",
+        "font": css_value(st.get("font_family"), "font", "inherit"),
+        "primary": css_value(st.get("primary"), "color", "#4f46e5"),
+        "text": css_value(st.get("text"), "color", "#222222"),
         "surface": "#ffffff",
-        "radius": st.get("radius") or "12px",
+        "radius": css_value(st.get("radius"), "len", "12px"),
     }
     style["onPrimary"] = _contrast(style["primary"])
     docs, problems, skipped = {}, [], []
@@ -178,23 +180,34 @@ def install(project: str, analysis: dict, include_checklist: bool = True, html_f
         owner = f"개인정보 보호책임자: {html.escape(meta['operator_name'])} 교사 ({html.escape(meta['school'])})" + (f" | 문의: {html.escape(meta['contact_phone'])}" if meta.get("contact_phone") else "")
     # 정적 파일 위치: Vite/React 등은 public/, 정적 사이트는 루트
     pub = root / "public" if (root / "public").is_dir() or st["framework"] in ("react", "vue", "svelte", "next") else root
-    asset_dir = pub / "legal"
-    asset_dir.mkdir(parents=True, exist_ok=True)
-    (asset_dir / "legal-content.js").write_text("window.__EDU_LEGAL__ = " + json.dumps({"style": style, "docs": docs, "owner": owner}, ensure_ascii=False) + ";\n", "utf-8")
-    (asset_dir / "legal-popup.js").write_text(POPUP_JS, "utf-8")
-    # index.html 찾기
-    target = Path(html_file) if html_file else next((p for p in [root / "index.html", root / "public" / "index.html", root / "src" / "index.html"] if p.exists()), None)
+    asset_dir = safe_dir(root, *pub.relative_to(root).parts, "legal")
+    # 기존 파일이 있으면 프로젝트 밖을 가리키는 링크가 아닌지 확인 후 덮어씀
+    content_js = inside(root, asset_dir / "legal-content.js")
+    popup_js = inside(root, asset_dir / "legal-popup.js")
+    payload = json.dumps({"style": style, "docs": docs, "owner": owner}, ensure_ascii=False)
+    payload = payload.replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+    content_js.write_text("window.__EDU_LEGAL__ = " + payload + ";\n", "utf-8")
+    popup_js.write_text(POPUP_JS, "utf-8")
+    # index.html 찾기(프로젝트 폴더 안의 .html 파일만 수정)
+    if html_file:
+        hp = Path(html_file).expanduser()
+        target = inside(root, hp if hp.is_absolute() else root / hp)
+        if target.suffix.lower() not in (".html", ".htm") or not target.is_file():
+            raise UnsafePath(f"html_file은 프로젝트 폴더 안의 기존 .html 파일이어야 합니다: {html_file}")
+    else:
+        target = next((inside(root, p) for p in [root / "index.html", root / "public" / "index.html", root / "src" / "index.html"] if p.is_file()), None)
     if target is None:
         return {"installed": False, "reason": "index.html을 찾지 못했습니다. html_file 경로를 알려 주세요.", "assets": str(asset_dir)}
     if st["framework"] == "next":
         return {"installed": False, "reason": "Next.js는 index.html이 없어 app/layout에 <Script src=\"/legal/legal-content.js\"/>와 legal-popup.js를 추가해야 합니다(안내만 하고 자동 수정하지 않음).", "assets": str(asset_dir)}
     src = target.read_text("utf-8")
+    bak = backup(root, target)
     prefix = "./legal/" if pub == root else "/legal/"
     tag = f'{MARK}\n<script src="{prefix}legal-content.js"></script>\n<script src="{prefix}legal-popup.js" defer></script>\n'
     src = re.sub(re.escape(MARK) + r".*?legal-popup\.js[^>]*></script>\n?", "", src, flags=re.S)
     src = src.replace("</body>", tag + "</body>") if "</body>" in src else src + tag
     target.write_text(src, "utf-8")
-    return {"installed": True, "html_file": str(target), "assets": [str(asset_dir / "legal-content.js"), str(asset_dir / "legal-popup.js")], "style_used": style,
+    return {"installed": True, "html_file": str(target), "backup": str(bak), "assets": [str(asset_dir / "legal-content.js"), str(asset_dir / "legal-popup.js")], "style_used": style,
             "footer": "기존 <footer>가 있으면 그 안에, 없으면 body 끝에 링크를 추가합니다(로그인 전/후 모든 화면 공통).",
             "test": "PC·휴대전화 폭에서 열기→끝까지 스크롤→'확인했어요'/×/Esc/바깥 클릭으로 닫기를 확인하세요.",
             "skipped": skipped,

@@ -8,6 +8,11 @@ except ImportError:  # mcp 1.x
     from mcp.server.fastmcp import FastMCP as _Server
 from . import analyzer, legal, popup, checklists
 
+
+def _save_analysis(project_path: str, a: dict) -> None:
+    # 배포 폴더에 같이 올라가도 PC 사용자 이름·절대 경로가 드러나지 않도록 project_path는 빼고 저장
+    (legal.out_dir(project_path) / "analysis.json").write_text(_j({k: v for k, v in a.items() if k != "project_path"}), "utf-8")
+
 mcp = _Server("edu-legal-mcp", instructions=(
     "교사가 만든 웹앱을 분석해 ① 이용약관·개인정보처리방침 ② 하단 링크+팝업 ③ 에듀집/학교용 필수기준 체크리스트(HWPX)를 만듭니다. "
     "순서: analyze_app → write_legal_docs → (questions를 교사에게 질문하고 답을 info로 넣어 다시 실행) → install_footer_popup → generate_checklists. "
@@ -36,7 +41,7 @@ def analyze_app(project_path: str) -> str:
     """웹앱 프로젝트 폴더(로컬 경로)를 분석합니다. 입력 항목(이름 등), 브라우저 저장소, 외부 AI API, Firebase/Supabase, 로그인,
     외부 전송 주소, 프레임워크와 화면 스타일(글꼴·색·모서리)을 근거(파일:줄)와 함께 돌려줍니다. 결과는 legal-docs/analysis.json에도 저장됩니다."""
     a = analyzer.analyze(project_path)
-    (legal.out_dir(project_path) / "analysis.json").write_text(_j(a), "utf-8")
+    _save_analysis(project_path, a)
     return _j(a)
 
 
@@ -83,7 +88,7 @@ def run_all(project_path: str, info: dict | None = None, include_checklist_link:
     """analyze_app → write_legal_docs → generate_checklists → install_footer_popup을 한 번에 실행합니다.
     [확인 필요]가 남아 있으면 팝업 설치는 거부되고 교사에게 할 질문이 돌아옵니다."""
     a = analyzer.analyze(project_path)
-    (legal.out_dir(project_path) / "analysis.json").write_text(_j(a), "utf-8")
+    _save_analysis(project_path, a)
     d = legal.write(project_path, a, info)
     c = checklists.generate(project_path, a, info)
     p = popup.install(project_path, a, include_checklist_link)
