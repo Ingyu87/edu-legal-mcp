@@ -3,7 +3,7 @@ import asyncio, json, sys
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-APP = sys.argv[1] if len(sys.argv) > 1 else "/workspace/sample-app"
+APP = sys.argv[1] if len(sys.argv) > 1 else "./sample-app"
 INFO = {"operator_name": "홍길동", "school": "○○초등학교", "contact_phone": "02-000-0000", "purpose": "초등학생 글쓰기 수업용"}
 
 async def main():

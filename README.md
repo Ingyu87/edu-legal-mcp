@@ -79,9 +79,12 @@ claude mcp add edu-legal -- python -m edu_legal_mcp.server
 
 ## 테스트
 ```bash
-python scripts/e2e_client.py /workspace/sample-app   # MCP stdio 클라이언트로 4개 도구 호출
-python -m http.server 8765 -d /workspace/sample-app & python scripts/shots.py   # 팝업 캡처 + 모바일 열기/스크롤/닫기 검사
+python scripts/e2e_client.py ./sample-app   # MCP stdio 클라이언트로 4개 도구 호출
+python -m http.server 8765 -d ./sample-app & python scripts/shots.py http://localhost:8765/ ./shots   # 팝업 캡처 + 모바일 열기/스크롤/닫기 검사
 ```
+
+## 양식 출처
+`edu_legal_mcp/templates/school_checklist.hwpx`(필수기준 체크리스트, 학교용)와 에듀집 체크리스트 표 구조·문구, 3단계 프롬프트는 **교사개발자 해커톤** 자료(wowideas 작업장 「개인정보처리방침/이용약관예시」)에 공개된 교육용 양식을 바탕으로 했습니다. 양식의 권리는 원 작성 기관에 있습니다. 다른 교사의 예시 앱 작성 사례(PDF)는 이 저장소에 포함하지 않았습니다.
 
 ## 주의
 이 도구가 만드는 문서는 법률 자문이 아닙니다. 학교와 교육청의 안내, 학교운영위원회 심의 절차를 따르세요.
